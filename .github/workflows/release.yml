@@ -1,55 +1,64 @@
-name: Release
+name: manual-artifact-and-release
 
-on:
+on: 
   workflow_dispatch:
     inputs:
       version:
-        description: '发布版本号（不含 v 前缀），例如 1.0.0'
+        description: '发布版本号（例如 0.6.2，不带 v）'
         required: true
         type: string
       prerelease:
-        description: '标记为预发布版本（Pre-release）'
-        required: false
-        default: false
-        type: boolean
-      draft:
-        description: '先保存为草稿，不直接发布'
+        description: '是否标记为预发布（Pre-release）'
         required: false
         default: false
         type: boolean
 
 permissions:
-  contents: write   # 创建 Tag / Release / 上传附件必需
+  contents: write # 必须添加，否则无法创建 Release
 
 jobs:
-  build-and-release:
+  build:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout
+      - name: Checkout sources
         uses: actions/checkout@v4
 
-      - name: Set up Java 21
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          java-version: '21'
-          distribution: 'temurin'
+          distribution: temurin
+          java-version: 21
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+          cache-cleanup: always
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
+      - name: Gradle build
+        run: ./gradlew build
 
-      - name: Build with Gradle
-        run: ./gradlew build --no-daemon
+      # 1. 依然上传到 Actions 产物供临时下载
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: voxy-artifacts
+          path: build/libs/*.jar
 
+      # 2. 直接发布到 GitHub Release
       - name: Publish to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ inputs.version }}          # 自动创建/使用该 Tag
-          name: v${{ inputs.version }}              # Release 标题
-          target_commitish: ${{ github.sha }}       # Tag 指向本次运行所选分支的最新提交
+          tag_name: v${{ inputs.version }}
+          name: v${{ inputs.version }}
+          target_commitish: ${{ github.sha }}
+          # 这里使用 /*.jar 会包含所有 jar，如果不想传 sources/dev，建议用 ! 排除
+          # 例如：files: |
+          #   build/libs/*.jar
+          #   !build/libs/*-sources.jar
+          #   !build/libs/*-dev.jar
           files: build/libs/*.jar
           generate_release_notes: true
           prerelease: ${{ inputs.prerelease }}
-          draft: ${{ inputs.draft }}
+          draft: false
