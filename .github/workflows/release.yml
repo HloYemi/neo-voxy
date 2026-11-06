@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '发布版本号（不含 v 前缀），例如 1.0.0'
+        required: true
+        type: string
+      prerelease:
+        description: '标记为预发布版本（Pre-release）'
+        required: false
+        default: false
+        type: boolean
+      draft:
+        description: '先保存为草稿，不直接发布'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write   # 创建 Tag / Release / 上传附件必需
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build with Gradle
+        run: ./gradlew build --no-daemon
+
+      - name: Publish to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}          # 自动创建/使用该 Tag
+          name: v${{ inputs.version }}              # Release 标题
+          target_commitish: ${{ github.sha }}       # Tag 指向本次运行所选分支的最新提交
+          files: build/libs/*.jar
+          generate_release_notes: true
+          prerelease: ${{ inputs.prerelease }}
+          draft: ${{ inputs.draft }}
