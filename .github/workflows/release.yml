@@ -1,20 +1,15 @@
-name: manual-artifact-and-release
+name: manual-win-release
 
 on: 
   workflow_dispatch:
     inputs:
       version:
-        description: '发布版本号（例如 0.6.2，不带 v）'
+        description: '发布版本号（例如 0.6.1，不带 v）'
         required: true
         type: string
-      prerelease:
-        description: '是否标记为预发布（Pre-release）'
-        required: false
-        default: false
-        type: boolean
 
 permissions:
-  contents: write # 必须添加，否则无法创建 Release
+  contents: write # 发布 Release 必须
 
 jobs:
   build:
@@ -39,26 +34,38 @@ jobs:
       - name: Gradle build
         run: ./gradlew build
 
-      # 1. 依然上传到 Actions 产物供临时下载
+      # ================= 核心：剔除 Linux 和 macOS 的库 =================
+      - name: Strip non-Windows libraries
+        run: |
+          # 1. 找到构建出来的原版大 JAR (排除 sources 和 dev)
+          ORIGINAL_JAR=$(find build/libs -name "*.jar" ! -name "*-sources.jar" ! -name "*-dev.jar" | head -n 1)
+          echo "找到原始 JAR: $ORIGINAL_JAR"
+          
+          # 2. 重命名为 Windows 版（比如 neovoxy-0.6.1-windows.jar）
+          WIN_JAR="${ORIGINAL_JAR%.jar}-windows.jar"
+          mv "$ORIGINAL_JAR" "$WIN_JAR"
+          
+          # 3. 使用 zip 命令从包内精准删除 linux 和 osx 的原生库
+          echo "正在剔除 Linux 和 macOS 原生库..."
+          zip -d "$WIN_JAR" "librocksdbjni-linux*" "librocksdbjni-osx*" > /dev/null 2>&1 || true
+          
+          echo "处理完成，最终产物大小："
+          ls -lh build/libs/*.jar
+      # ===================================================================
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: voxy-artifacts
-          path: build/libs/*.jar
+          name: voxy-win-artifact
+          path: build/libs/*-windows.jar
 
-      # 2. 直接发布到 GitHub Release
       - name: Publish to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ inputs.version }}
-          name: v${{ inputs.version }}
+          name: v${{ inputs.version }} (Windows Only)
           target_commitish: ${{ github.sha }}
-          # 这里使用 /*.jar 会包含所有 jar，如果不想传 sources/dev，建议用 ! 排除
-          # 例如：files: |
-          #   build/libs/*.jar
-          #   !build/libs/*-sources.jar
-          #   !build/libs/*-dev.jar
-          files: build/libs/*.jar
+          files: build/libs/*-windows.jar
           generate_release_notes: true
-          prerelease: ${{ inputs.prerelease }}
           draft: false
+          compression-level: 0 # 加快上传速度
